@@ -2,6 +2,8 @@
 name = "serde_shade_nbt"
 version = "0.0.1"
 edition = "2021"
+description = "Rust serde crate for the ShadeNBT file format"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 mutf8 = "0.5"
