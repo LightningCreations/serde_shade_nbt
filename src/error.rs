@@ -15,10 +15,14 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("string length of {0} does not fit into a u16")]
     StrLen(usize),
+    #[error("sequence length of {0} does not fit into a i32")]
+    SeqLen(usize),
     #[error("{0}")]
     Mutf8(#[from] mutf8::error::Error),
     #[error("did not detect a valid ShadeNBT header")]
     InvalidHeader,
+    #[error("field name is unset")]
+    FieldInfoUnset,
 }
 
 impl ser::Error for Error {

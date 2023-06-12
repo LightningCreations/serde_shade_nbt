@@ -15,14 +15,43 @@ pub fn to_writer<W: Write, T: ?Sized + Serialize>(writer: W, value: &T) -> Resul
     value.serialize(&mut serializer)
 }
 
+enum FieldInfo {
+    None,
+    Named(&'static str),
+    InSeq(Option<i32>),
+}
+
+impl FieldInfo {
+    fn write(&mut self, tag: u8, mut w: impl Write) -> Result<()> {
+        match self {
+            Self::None => Err(Error::FieldInfoUnset),
+            Self::InSeq(size) => {
+                if let Some(x) = size {
+                    w.write_all(&[tag])?;
+                    w.write_all(&x.to_le_bytes())?;
+                    *size = None;
+                }
+                Ok(())
+            },
+            Self::Named(name) => {
+                w.write_all(&[tag])?;
+                let len = u16::try_from(name.len()).map_err(|_| Error::StrLen(name.len()))?;
+                w.write_all(&len.to_le_bytes())?;
+                Ok(())
+            }
+        }
+    }
+}
+
 pub struct Serializer<W: Write> {
     output: W,
+    field_info: FieldInfo,
 }
 
 impl<W: Write> Serializer<W> {
     pub fn new(mut output: W) -> Result<Self> {
         output.write_all(&[0xad, 0x4e, 0x42, 0x54, 0x00, 0x04, 0x80])?;
-        Ok(Self { output })
+        Ok(Self { output, field_info: FieldInfo::None })
     }
 }
 
@@ -71,35 +100,51 @@ impl<W: Write> ser::Serializer for &mut Serializer<W> {
     }
 
     fn serialize_u8(self, v: u8) -> Result<()> {
-        todo!()
+        self.field_info.write(0x01, &mut self.output)?;
+        self.output.write_all(&[v])?;
+        Ok(())
     }
 
     fn serialize_u16(self, v: u16) -> Result<()> {
-        todo!()
+        self.field_info.write(0x02, &mut self.output)?;
+        self.output.write_all(&v.to_le_bytes())?;
+        Ok(())
     }
 
     fn serialize_u32(self, v: u32) -> Result<()> {
-        todo!()
+        self.field_info.write(0x03, &mut self.output)?;
+        self.output.write_all(&v.to_le_bytes())?;
+        Ok(())
     }
 
     fn serialize_u64(self, v: u64) -> Result<()> {
-        todo!()
+        self.field_info.write(0x04, &mut self.output)?;
+        self.output.write_all(&v.to_le_bytes())?;
+        Ok(())
     }
 
     fn serialize_f32(self, v: f32) -> Result<()> {
-        todo!()
+        self.field_info.write(0x05, &mut self.output)?;
+        self.output.write_all(&v.to_le_bytes())?;
+        Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<()> {
-        todo!()
+        self.field_info.write(0x06, &mut self.output)?;
+        self.output.write_all(&v.to_le_bytes())?;
+        Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
-        todo!()
+        self.field_info.write(0x07, &mut self.output)?;
+        self.output.write_all(&v)?;
+        Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<()> {
-        todo!()
+        self.field_info.write(0x08, &mut self.output)?;
+        self.output.write_all(&mutf8::utf8_to_mutf8(v.as_bytes())?)?;
+        Ok(())
     }
 
     fn serialize_u128(self, v: u128) -> Result<()> {
@@ -133,7 +178,11 @@ impl<W: Write> ser::Serializer for &mut Serializer<W> {
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self> {
-        todo!()
+        self.field_info.write(0x09, &mut self.output)?;
+        let len = len.unwrap_or_else(|| todo!());
+        let len = len.try_into().map_err(|_| Error::SeqLen(len))?;
+        self.field_info = FieldInfo::InSeq(Some(len));
+        Ok(self)
     }
 
     fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<()> {
@@ -141,7 +190,8 @@ impl<W: Write> ser::Serializer for &mut Serializer<W> {
     }
 
     fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self> {
-        todo!()
+        self.field_info.write(0x0a, &mut self.output)?;
+        Ok(self)
     }
 
     fn serialize_struct_variant(
@@ -212,11 +262,11 @@ impl<W: Write> ser::SerializeSeq for &mut Serializer<W> {
     type Error = Error;
 
     fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<()> {
-        todo!()
+        value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        todo!()
+        Ok(())
     }
 }
 
@@ -229,15 +279,13 @@ impl<W: Write> ser::SerializeStruct for &mut Serializer<W> {
         key: &'static str,
         value: &T,
     ) -> Result<()> {
-        todo!()
-    }
-
-    fn skip_field(&mut self, key: &'static str) -> Result<()> {
-        todo!()
+        self.field_info = FieldInfo::Named(key);
+        value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        todo!()
+        self.output.write_all(&[0])?;
+        Ok(())
     }
 }
 
@@ -250,10 +298,6 @@ impl<W: Write> ser::SerializeStructVariant for &mut Serializer<W> {
         key: &'static str,
         value: &T,
     ) -> Result<()> {
-        todo!()
-    }
-
-    fn skip_field(&mut self, key: &'static str) -> Result<()> {
         todo!()
     }
 
