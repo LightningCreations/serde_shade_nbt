@@ -17,14 +17,16 @@ pub fn to_writer<W: Write, T: ?Sized + Serialize>(writer: W, value: &T) -> Resul
 
 enum FieldInfo {
     None,
+    Root,
     Named(&'static str),
     InSeq(Option<i32>),
 }
 
 impl FieldInfo {
     fn write(&mut self, tag: u8, mut w: impl Write) -> Result<()> {
-        match self {
+        let result = match self {
             Self::None => Err(Error::FieldInfoUnset),
+            Self::Root => Ok(()),
             Self::InSeq(size) => {
                 if let Some(x) = size {
                     w.write_all(&[tag])?;
@@ -32,14 +34,16 @@ impl FieldInfo {
                     *size = None;
                 }
                 Ok(())
-            },
+            }
             Self::Named(name) => {
                 w.write_all(&[tag])?;
                 let len = u16::try_from(name.len()).map_err(|_| Error::StrLen(name.len()))?;
                 w.write_all(&len.to_le_bytes())?;
                 Ok(())
             }
-        }
+        };
+        *self = FieldInfo::None;
+        result
     }
 }
 
@@ -51,7 +55,10 @@ pub struct Serializer<W: Write> {
 impl<W: Write> Serializer<W> {
     pub fn new(mut output: W) -> Result<Self> {
         output.write_all(&[0xad, 0x4e, 0x42, 0x54, 0x00, 0x04, 0x80])?;
-        Ok(Self { output, field_info: FieldInfo::None })
+        Ok(Self {
+            output,
+            field_info: FieldInfo::Root,
+        })
     }
 }
 
@@ -137,13 +144,14 @@ impl<W: Write> ser::Serializer for &mut Serializer<W> {
 
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         self.field_info.write(0x07, &mut self.output)?;
-        self.output.write_all(&v)?;
+        self.output.write_all(v)?;
         Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<()> {
         self.field_info.write(0x08, &mut self.output)?;
-        self.output.write_all(&mutf8::utf8_to_mutf8(v.as_bytes())?)?;
+        self.output
+            .write_all(&mutf8::utf8_to_mutf8(v.as_bytes())?)?;
         Ok(())
     }
 
