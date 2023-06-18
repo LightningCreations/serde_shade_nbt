@@ -26,7 +26,10 @@ impl FieldInfo {
     fn write(&mut self, tag: u8, mut w: impl Write) -> Result<()> {
         let result = match self {
             Self::None => Err(Error::FieldInfoUnset),
-            Self::Root => Ok(()),
+            Self::Root => {
+                w.write_all(&[tag])?;
+                Ok(())
+            }
             Self::InSeq(size) => {
                 if let Some(x) = size {
                     w.write_all(&[tag])?;
@@ -39,6 +42,8 @@ impl FieldInfo {
                 w.write_all(&[tag])?;
                 let len = u16::try_from(name.len()).map_err(|_| Error::StrLen(name.len()))?;
                 w.write_all(&len.to_le_bytes())?;
+                let mutf8 = mutf8::utf8_to_mutf8(name.as_bytes())?;
+                w.write_all(&mutf8)?;
                 Ok(())
             }
         };
@@ -144,14 +149,18 @@ impl<W: Write> ser::Serializer for &mut Serializer<W> {
 
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
         self.field_info.write(0x07, &mut self.output)?;
+        let len = i32::try_from(v.len()).map_err(|_| Error::SeqLen(v.len()))?;
+        self.output.write_all(&len.to_le_bytes())?;
         self.output.write_all(v)?;
         Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<()> {
         self.field_info.write(0x08, &mut self.output)?;
-        self.output
-            .write_all(&mutf8::utf8_to_mutf8(v.as_bytes())?)?;
+        let len = u16::try_from(v.len()).map_err(|_| Error::StrLen(v.len()))?;
+        self.output.write_all(&len.to_le_bytes())?;
+        let mutf8 = mutf8::utf8_to_mutf8(v.as_bytes())?;
+        self.output.write_all(&mutf8)?;
         Ok(())
     }
 
