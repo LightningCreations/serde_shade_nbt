@@ -7,17 +7,19 @@ use crate::error::{Error, Result};
 pub fn to_vec<T: ?Sized + Serialize>(value: &T) -> Result<Vec<u8>> {
     let mut serializer = Serializer::new(Vec::new())?;
     value.serialize(&mut serializer)?;
+    serializer.output.push(0);
     Ok(serializer.output)
 }
 
 pub fn to_writer<W: Write, T: ?Sized + Serialize>(writer: W, value: &T) -> Result<()> {
     let mut serializer = Serializer::new(writer)?;
-    value.serialize(&mut serializer)
+    value.serialize(&mut serializer)?;
+    serializer.output.write_all(&[0])?;
+    Ok(())
 }
 
 enum FieldInfo {
     None,
-    Root,
     Named(&'static str),
     InSeq(Option<i32>),
 }
@@ -26,10 +28,6 @@ impl FieldInfo {
     fn write(&mut self, tag: u8, mut w: impl Write) -> Result<()> {
         let result = match self {
             Self::None => Err(Error::FieldInfoUnset),
-            Self::Root => {
-                w.write_all(&[tag])?;
-                Ok(())
-            }
             Self::InSeq(size) => {
                 if let Some(x) = size {
                     w.write_all(&[tag])?;
@@ -59,10 +57,10 @@ pub struct Serializer<W: Write> {
 
 impl<W: Write> Serializer<W> {
     pub fn new(mut output: W) -> Result<Self> {
-        output.write_all(&[0xad, 0x4e, 0x42, 0x54, 0x00, 0x04, 0x80])?;
+        output.write_all(&[0xad, 0x4e, 0x42, 0x54, 0x00, 0x05, 0x80])?;
         Ok(Self {
             output,
-            field_info: FieldInfo::Root,
+            field_info: FieldInfo::Named(""),
         })
     }
 }

@@ -1,11 +1,11 @@
 [package]
 name = "serde_shade_nbt"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "Rust serde crate for the ShadeNBT file format"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
 mutf8 = "0.5"
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 thiserror = "1"
